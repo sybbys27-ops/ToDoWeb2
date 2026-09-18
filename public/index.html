@@ -160,9 +160,12 @@
     </div>
 
     <script>
-        // 현재 창이 팝업 창이 아니면 주소창 없는 독립 팝업 창을 새로 열기
-if (!window.opener && window.name !== 'TodoAppPopup') {
+        if (!window.opener && window.name !== 'TodoAppPopup') {
+    // 1. 작은 팝업창을 엽니다.
     window.open(window.location.href, 'TodoAppPopup', 'width=380,height=640,resizable=yes');
+    
+    // 2. 뒤에 남은 원래 브라우저 탭을 바로 닫습니다.
+    window.open('', '_self').close();
 }
         document.addEventListener('DOMContentLoaded', () => {
             initApp();
