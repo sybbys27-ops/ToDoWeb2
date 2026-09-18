@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>할 일 관리 앱</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+            background-color: #f1f5f9; 
+            overflow: hidden; 
+        }
+
+        #launcher-screen {
+            display: flex;
+            height: 100vh;
+            align-items: center;
+            justify-content: center;
+        }
+        .launcher-box {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .launcher-btn {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        /* 전체 앱 레이아웃 (Flexbox 고정 높이) */
+        .container { 
+            width: 100%; 
+            height: 100vh; 
+            background-color: #fef5c1; 
+            padding: 15px; 
+            box-sizing: border-box; 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header-area {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px; 
+            flex-shrink: 0;
+        }
+        .header-area h2 { margin: 0; margin-right: 15px; font-size: 20px; white-space: nowrap; }
+        .tab-buttons { display: flex; gap: 6px; }
+        .tab-btn {
+            width: 32px; height: 26px; font-size: 15px; font-weight: bold;
+            border: 1px solid #666; border-radius: 4px; cursor: pointer; opacity: 0.4;
+        }
+        .tab-btn[data-tab="1"] { background-color: #a3e635; }
+        .tab-btn[data-tab="2"] { background-color: #7dd3fc; }
+        .tab-btn[data-tab="3"] { background-color: #fcd34d; }
+        .tab-btn.active { opacity: 1; border: 2px solid #000; transform: scale(1.1); }
+
+        .file-action-area { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+        .action-btn {
+            flex: 1; height: 30px; font-size: 13px; background-color: #fff;
+            border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;
+        }
+
+        .input-area { display: flex; gap: 5px; flex-shrink: 0; }
+        #todo-input { flex: 1; height: 30px; font-size: 16px; padding-left: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        #add-btn { height: 30px; padding: 0 15px; font-size: 15px; cursor: pointer; }
+        #file-input { display: none; }
+
+        /* 할 일 목록 스크롤 영역 */
+        .todo-scroll-area {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #000;
+        }
+        ul { line-height: 1.4; padding-left: 20px; margin: 0; } 
+        li { margin-bottom: 5px; font-size: 15px; }
+        .todo-text { cursor: pointer; }
+        .done { text-decoration: line-through; color: gray; opacity: 0.5; }
+        .delete-btn { background: none; border: none; color: red; cursor: pointer; font-size: 12px; margin-left: 8px; }
+
+        /* 하단 AI 검색 고정 영역 */
+        .ai-section {
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .ai-input-row {
+            display: flex;
+            gap: 6px;
+            height: 52px;
+        }
+        #ai-prompt {
+            flex: 1;
+            height: 100%;
+            resize: none;
+            padding: 6px;
+            font-size: 13px;
+            border: 1px solid #000;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        #ai-submit-btn {
+            width: 55px;
+            height: 100%;
+            font-size: 12px;
+            font-weight: bold;
+            background: #fff;
+            border: 1px solid #000;
+            border-radius: 4px;
+            cursor: pointer;
+            line-height: 1.2;
+        }
+        #ai-answer-box {
+            height: 150px;
+            background-color: #fffde7;
+            border: 2px solid #93c5fd;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 13px;
+            line-height: 1.4;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="launcher-screen">
+        <div class="launcher-box">
+            <h2 style="margin-top: 0;">✅ 투두리스트 준비 완료</h2>
+            <p style="color: #666; margin-bottom: 20px;">독립 앱 화면으로 실행합니다.</p>
+            <button id="launch-app-btn" class="launcher-btn">🚀 앱 화면으로 열기</button>
+        </div>
+    </div>
+
+    <div class="container" id="app-container" style="display: none;">
+        
+        <div class="header-area">
+            <h2 id="app-title">&lt; 할 일 관리-1 &gt;</h2>
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="1">1</button>
+                <button class="tab-btn" data-tab="2">2</button>
+                <button class="tab-btn" data-tab="3">3</button>
+            </div>
+        </div>
+
+        <div class="file-action-area">
+            <button class="action-btn" id="import-btn">📂 가져오기</button>
+            <button class="action-btn" id="export-btn">💾 저장하기</button>
+            <button class="action-btn" id="google-btn">🌐 Google</button>
+            <button class="action-btn" id="papago-btn">🦜 papago</button>
+        </div>
+
+        <div class="input-area">
+            <input type="text" id="todo-input" placeholder="할 일을 입력하세요.">
+            <button id="add-btn">추가</button>
+            <input type="file" id="file-input" accept=".json">
+        </div>
+
+        <!-- 할 일 목록 스크롤 영역 -->
+        <div class="todo-scroll-area">
+            <ul id="todo-list"></ul>
+        </div>
+
+        <!-- 하단 AI 질의응답 고정 영역 -->
+        <div class="ai-section">
+            <div class="ai-input-row">
+                <textarea id="ai-prompt" placeholder="질문을 입력하세요. (Enter: 전송, Shift+Enter: 줄바꿈)"></textarea>
+                <button id="ai-submit-btn">질문:<br>Enter</button>
+            </div>
+            <div id="ai-answer-box">답변이 여기에 표시됩니다.</div>
+        </div>
+
+    </div>
+
+    <script>
+        const START_WIDTH = 420;  
+        const START_HEIGHT = 600; // AI 영역 확보를 위해 창 높이 확장
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const isPopup = (window.name === 'todoAppPopup');
+
+            if (!isPopup) {
+                document.getElementById('launch-app-btn').addEventListener('click', () => {
+                    const features = `width=${START_WIDTH},height=${START_HEIGHT},toolbar=no,location=no,status=no,menubar=no,scrollbars=no,resizable=yes`;
+                    window.open(window.location.href, 'todoAppPopup', features);
+                    window.open('', '_self', '');
+                    window.close();
+                });
+            } else {
+                document.getElementById('launcher-screen').style.display = 'none';
+                document.getElementById('app-container').style.display = 'flex';
+                initApp(); 
+            }
+        });
+
+        function initApp() {
+            const input = document.getElementById('todo-input');
+            const addBtn = document.getElementById('add-btn');
+            const todoList = document.getElementById('todo-list');
+            const importBtn = document.getElementById('import-btn');
+            const exportBtn = document.getElementById('export-btn');
+            const googleBtn = document.getElementById('google-btn');
+            const papagoBtn = document.getElementById('papago-btn'); 
+            const fileInput = document.getElementById('file-input');
+            const appTitle = document.getElementById('app-title');
+            const tabBtns = document.querySelectorAll('.tab-btn');
+
+            const aiPrompt = document.getElementById('ai-prompt');
+            const aiSubmitBtn = document.getElementById('ai-submit-btn');
+            const aiAnswerBox = document.getElementById('ai-answer-box');
+
+            let currentTab = '1';
+            let appData = { '1': [], '2': [], '3': [] };
+            let STORAGE_KEY = 'todolistweb_fallback';
+
+            try {
+                let currentKey = localStorage.getItem('CURRENT_TODO_KEY');
+                if (!currentKey) {
+                    currentKey = `todolistweb${Math.floor(1000 + Math.random() * 9000)}`; 
+                    localStorage.setItem('CURRENT_TODO_KEY', currentKey);
+                }
+                STORAGE_KEY = currentKey;
+            } catch(e) { }
+
+            function saveToStorage() {
+                try {
+                    const todos = [];
+                    const items = todoList.querySelectorAll('li');
+                    items.forEach(item => {
+                        const textSpan = item.querySelector('.todo-text');
+                        todos.push({ text: textSpan.textContent, isDone: textSpan.classList.contains('done') });
+                    });
+                    appData[currentTab] = todos;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+                } catch(e) {}
+            }
+
+            function createTodoElement(text, isDone) {
+                const newLi = document.createElement('li');
+                const textSpan = document.createElement('span');
+                textSpan.className = 'todo-text';
+                textSpan.textContent = text;
+                if (isDone) textSpan.classList.add('done');
+                
+                const delBtn = document.createElement('button');
+                delBtn.className = 'delete-btn';
+                delBtn.textContent = '❌';
+
+                newLi.appendChild(textSpan);
+                newLi.appendChild(delBtn);
+                todoList.appendChild(newLi);
+            }
+
+            function renderCurrentTab() {
+                todoList.innerHTML = ''; 
+                const currentTodos = appData[currentTab] || [];
+                if (currentTodos.length > 0) {
+                    currentTodos.forEach(todo => createTodoElement(todo.text, todo.isDone));
+                } else if (currentTab === '1' && Object.keys(appData).every(k => appData[k].length === 0)) {
+                    createTodoElement('기본 항목 (클릭하면 줄이 그어져요)', false);
+                    createTodoElement('우측의 ❌를 누르면 삭제됩니다.', false);
+                    saveToStorage();
+                }
+            }
+
+            function loadFromStorage() {
+                try {
+                    const rawData = localStorage.getItem(STORAGE_KEY);
+                    if (rawData && rawData !== '[]' && rawData !== '{}') {
+                        const parsedData = JSON.parse(rawData);
+                        if (Array.isArray(parsedData)) {
+                            appData['1'] = parsedData;
+                        } else {
+                            appData = parsedData;
+                        }
+                    }
+                } catch(e) {}
+                renderCurrentTab();
+            }
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    saveToStorage();
+                    currentTab = e.target.getAttribute('data-tab');
+                    appTitle.innerHTML = `&lt; 할 일 관리-${currentTab} &gt;`;
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    renderCurrentTab();
+                });
+            });
+
+            loadFromStorage();
+
+            addBtn.addEventListener('click', () => {
+                const text = input.value.trim();
+                if (text === '') return; 
+                createTodoElement(text, false);
+                input.value = '';
+                saveToStorage(); 
+            });
+
+            todoList.addEventListener('click', (event) => {
+                if (event.target.classList.contains('delete-btn')) {
+                    event.target.parentElement.remove(); 
+                    saveToStorage(); 
+                } 
+                else if (event.target.classList.contains('todo-text')) {
+                    event.target.classList.toggle('done'); 
+                    saveToStorage(); 
+                }
+            });
+
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') addBtn.click(); 
+            });
+
+            googleBtn.addEventListener('click', () => {
+                window.open('https://www.google.com', 'GoogleSearchPopup', 'width=755,height=660,resizable=yes');
+            });
+
+            papagoBtn.addEventListener('click', () => {
+                window.open('https://papago.naver.com/', 'PapagoPopup', 'width=400,height=620,resizable=yes');
+            });
+
+            // AI 질의응답 처리
+            async function requestAI() {
+                const promptText = aiPrompt.value.trim();
+                if (!promptText) return;
+
+                aiAnswerBox.textContent = '답변 생성 중...';
+                aiSubmitBtn.disabled = true;
+
+                try {
+                    const res = await fetch('/api/ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: promptText })
+                    });
+
+                    const data = await res.json();
+                    if (res.ok) {
+                        aiAnswerBox.textContent = data.answer;
+                    } else {
+                        aiAnswerBox.textContent = `오류: ${data.error || '답변을 불러오지 못했습니다.'}`;
+                    }
+                } catch (err) {
+                    aiAnswerBox.textContent = '통신 중 오류가 발생했습니다.';
+                } finally {
+                    aiSubmitBtn.disabled = false;
+                }
+            }
+
+            aiSubmitBtn.addEventListener('click', requestAI);
+            aiPrompt.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    requestAI();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
