@@ -160,6 +160,10 @@
     </div>
 
     <script>
+        // 현재 창이 팝업 창이 아니면 주소창 없는 독립 팝업 창을 새로 열기
+if (!window.opener && window.name !== 'TodoAppPopup') {
+    window.open(window.location.href, 'TodoAppPopup', 'width=380,height=640,resizable=yes');
+}
         document.addEventListener('DOMContentLoaded', () => {
             initApp();
         });
