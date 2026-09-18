@@ -8,25 +8,43 @@
             margin: 0;
             padding: 0;
             font-family: sans-serif;
-            background-color: #e2e8f0; 
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+            background-color: #f1f5f9; 
             overflow: hidden; 
         }
 
-        /* 📌 메인 앱 화면 크기 지정 (원하는 크기로 px 숫자를 변경하세요) */
+        #launcher-screen {
+            display: flex;
+            height: 100vh;
+            align-items: center;
+            justify-content: center;
+        }
+        .launcher-box {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .launcher-btn {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        /* 전체 앱 레이아웃 (Flexbox 고정 높이) */
         .container { 
-            width: 420px;         /* 메인 화면 가로 크기 */
-            height: 640px;        /* 메인 화면 세로 크기 */
+            width: 100%; 
+            height: 100vh; 
             background-color: #fef5c1; 
             padding: 15px; 
             box-sizing: border-box; 
             display: flex;
             flex-direction: column;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
         
         .header-area {
@@ -53,8 +71,8 @@
         }
 
         .input-area { display: flex; gap: 5px; flex-shrink: 0; }
-        #todo-input { flex: 1; height: 30px; font-size: 15px; padding-left: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        #add-btn { height: 30px; padding: 0 12px; font-size: 14px; cursor: pointer; }
+        #todo-input { flex: 1; height: 30px; font-size: 16px; padding-left: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        #add-btn { height: 30px; padding: 0 15px; font-size: 15px; cursor: pointer; }
         #file-input { display: none; }
 
         /* 할 일 목록 스크롤 영역 */
@@ -66,7 +84,7 @@
             border-bottom: 2px solid #000;
         }
         ul { line-height: 1.4; padding-left: 20px; margin: 0; } 
-        li { margin-bottom: 5px; font-size: 14px; }
+        li { margin-bottom: 5px; font-size: 15px; }
         .todo-text { cursor: pointer; }
         .done { text-decoration: line-through; color: gray; opacity: 0.5; }
         .delete-btn { background: none; border: none; color: red; cursor: pointer; font-size: 12px; margin-left: 8px; }
@@ -81,14 +99,14 @@
         .ai-input-row {
             display: flex;
             gap: 6px;
-            height: 48px;
+            height: 52px;
         }
         #ai-prompt {
             flex: 1;
             height: 100%;
             resize: none;
             padding: 6px;
-            font-size: 12px;
+            font-size: 13px;
             border: 1px solid #000;
             border-radius: 4px;
             box-sizing: border-box;
@@ -105,12 +123,12 @@
             line-height: 1.2;
         }
         #ai-answer-box {
-            height: 120px;
+            height: 150px;
             background-color: #fffde7;
             border: 2px solid #93c5fd;
             border-radius: 6px;
             padding: 8px 10px;
-            font-size: 12px;
+            font-size: 13px;
             line-height: 1.4;
             overflow-y: auto;
             white-space: pre-wrap;
@@ -121,7 +139,15 @@
 </head>
 <body>
 
-    <div class="container" id="app-container">
+    <div id="launcher-screen">
+        <div class="launcher-box">
+            <h2 style="margin-top: 0;">✅ 투두리스트 준비 완료</h2>
+            <p style="color: #666; margin-bottom: 20px;">독립 앱 화면으로 실행합니다.</p>
+            <button id="launch-app-btn" class="launcher-btn">🚀 앱 화면으로 열기</button>
+        </div>
+    </div>
+
+    <div class="container" id="app-container" style="display: none;">
         
         <div class="header-area">
             <h2 id="app-title">&lt; 할 일 관리-1 &gt;</h2>
@@ -145,10 +171,12 @@
             <input type="file" id="file-input" accept=".json">
         </div>
 
+        <!-- 할 일 목록 스크롤 영역 -->
         <div class="todo-scroll-area">
             <ul id="todo-list"></ul>
         </div>
 
+        <!-- 하단 AI 질의응답 고정 영역 -->
         <div class="ai-section">
             <div class="ai-input-row">
                 <textarea id="ai-prompt" placeholder="질문을 입력하세요. (Enter: 전송, Shift+Enter: 줄바꿈)"></textarea>
@@ -160,23 +188,35 @@
     </div>
 
     <script>
-        if (!window.opener && window.name !== 'TodoAppPopup') {
-    // 1. 작은 팝업창을 엽니다.
-    window.open(window.location.href, 'TodoAppPopup', 'width=420,height=640,resizable=yes');
-    
-    // 2. 뒤에 남은 원래 브라우저 탭을 바로 닫습니다.
-    window.open('', '_self').close();
-}
+        const START_WIDTH = 420;  
+        const START_HEIGHT = 640; // AI 영역 확보를 위해 창 높이 확장
+
         document.addEventListener('DOMContentLoaded', () => {
-            initApp();
+            const isPopup = (window.name === 'todoAppPopup');
+
+            if (!isPopup) {
+                document.getElementById('launch-app-btn').addEventListener('click', () => {
+                    const features = `width=${START_WIDTH},height=${START_HEIGHT},toolbar=no,location=no,status=no,menubar=no,scrollbars=no,resizable=yes`;
+                    window.open(window.location.href, 'todoAppPopup', features);
+                    window.open('', '_self', '');
+                    window.close();
+                });
+            } else {
+                document.getElementById('launcher-screen').style.display = 'none';
+                document.getElementById('app-container').style.display = 'flex';
+                initApp(); 
+            }
         });
 
         function initApp() {
             const input = document.getElementById('todo-input');
             const addBtn = document.getElementById('add-btn');
             const todoList = document.getElementById('todo-list');
+            const importBtn = document.getElementById('import-btn');
+            const exportBtn = document.getElementById('export-btn');
             const googleBtn = document.getElementById('google-btn');
             const papagoBtn = document.getElementById('papago-btn'); 
+            const fileInput = document.getElementById('file-input');
             const appTitle = document.getElementById('app-title');
             const tabBtns = document.querySelectorAll('.tab-btn');
 
@@ -297,6 +337,7 @@
                 window.open('https://papago.naver.com/', 'PapagoPopup', 'width=400,height=620,resizable=yes');
             });
 
+            // AI 질의응답 처리
             async function requestAI() {
                 const promptText = aiPrompt.value.trim();
                 if (!promptText) return;
