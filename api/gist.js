@@ -68,7 +68,11 @@ async function findGist(token, configuredGistId) {
             gist.files &&
             gist.files[GIST_FILE_NAME]
         );
-        if (found) return found;
+        // /gists 목록 응답의 files에는 파일 본문(content)이 생략될 수 있습니다.
+        // 기존 Gist를 찾으면 /gists/{id}를 다시 호출해 전체 내용을 가져옵니다.
+        if (found) {
+            return await githubFetch(`/gists/${encodeURIComponent(found.id)}`, token);
+        }
         if (gists.length < 100) break;
     }
 
