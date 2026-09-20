@@ -74,6 +74,8 @@
         #todo-input { flex: 1; height: 30px; font-size: 16px; padding-left: 10px; border: 1px solid #ccc; border-radius: 4px; }
         #add-btn { height: 30px; padding: 0 15px; font-size: 15px; cursor: pointer; }
         #file-input { display: none; }
+        #storage-status { margin: 6px 0 0; font-size: 12px; flex-shrink: 0; color: #475569; }
+        #storage-status[data-error="true"] { color: #b91c1c; }
 
         /* 할 일 목록 스크롤 영역 */
         .todo-scroll-area {
@@ -170,6 +172,7 @@
             <button id="add-btn">추가</button>
             <input type="file" id="file-input" accept=".json">
         </div>
+        <p id="storage-status" role="status" hidden></p>
 
         <!-- 할 일 목록 스크롤 영역 -->
         <div class="todo-scroll-area">
@@ -179,7 +182,7 @@
         <!-- 하단 AI 질의응답 고정 영역 -->
         <div class="ai-section">
             <div class="ai-input-row">
-                <textarea id="ai-prompt" placeholder="질문을 입력하세요. (Enter: 전송, Shift+Enter: 줄바꿈)"></textarea>
+                <textarea id="ai-prompt" maxlength="4000" placeholder="질문을 입력하세요. (Enter: 전송, Shift+Enter: 줄바꿈)"></textarea>
                 <button id="ai-submit-btn">질문:<br>Enter</button>
             </div>
             <div id="ai-answer-box">답변이 여기에 표시됩니다.</div>
@@ -208,6 +211,43 @@
             }
         });
 
+
+        // PC 파일과 향후 Gist todo.json에 동일한 JSON 문자열을 저장합니다.
+        // 구버전 배열 / { "1": [], "2": [], "3": [] }도 읽을 수 있습니다.
+        function parseTodoState(data) {
+            if (!data || typeof data !== 'object') {
+                throw new Error('할 일 목록이 들어 있는 JSON 파일을 선택해주세요.');
+            }
+            let source = data;
+            let updatedAt = 0;
+            if (!Array.isArray(data) && ('schemaVersion' in data || 'todos' in data)) {
+                if (data.schemaVersion !== undefined && data.schemaVersion !== 1) {
+                    throw new Error('이 앱에서 지원하지 않는 파일 버전입니다.');
+                }
+                if (!Number.isSafeInteger(data.updatedAt) || data.updatedAt < 0 || data.updatedAt >= Number.MAX_SAFE_INTEGER) {
+                    throw new Error('파일의 수정 시각(updatedAt)이 올바르지 않습니다.');
+                }
+                source = data.todos;
+                updatedAt = data.updatedAt;
+            }
+            if (Array.isArray(source)) source = { '1': source, '2': [], '3': [] };
+            if (!source || typeof source !== 'object' || Object.keys(source).some(key => !['1', '2', '3'].includes(key))) {
+                throw new Error('파일의 탭 구조가 올바르지 않습니다.');
+            }
+            const todos = { '1': [], '2': [], '3': [] };
+            for (const tab of ['1', '2', '3']) {
+                const items = source[tab] === undefined ? [] : source[tab];
+                if (!Array.isArray(items)) throw new Error(`${tab}번 탭은 목록 형식이어야 합니다.`);
+                todos[tab] = items.map(item => {
+                    if (!item || typeof item.text !== 'string' || !item.text.trim() || typeof item.isDone !== 'boolean') {
+                        throw new Error(`${tab}번 탭의 할 일 내용 또는 완료 상태가 올바르지 않습니다.`);
+                    }
+                    return { text: item.text, isDone: item.isDone };
+                });
+            }
+            return { schemaVersion: 1, updatedAt, todos };
+        }
+
         function initApp() {
             const input = document.getElementById('todo-input');
             const addBtn = document.getElementById('add-btn');
@@ -219,6 +259,7 @@
             const fileInput = document.getElementById('file-input');
             const appTitle = document.getElementById('app-title');
             const tabBtns = document.querySelectorAll('.tab-btn');
+            const storageStatus = document.getElementById('storage-status');
 
             const aiPrompt = document.getElementById('ai-prompt');
             const aiSubmitBtn = document.getElementById('ai-submit-btn');
@@ -226,7 +267,22 @@
 
             let currentTab = '1';
             let appData = { '1': [], '2': [], '3': [] };
+            let updatedAt = 0;
+            let storageBlocked = false;
+            let fileBusy = false;
+            let fileHandle = null;
+            let aiBusy = false;
             let STORAGE_KEY = 'todolistweb_fallback';
+
+            function showStorageStatus(message, isError = false) {
+                storageStatus.textContent = message;
+                storageStatus.dataset.error = String(isError);
+                storageStatus.hidden = !message;
+            }
+
+            function getState() {
+                return { schemaVersion: 1, updatedAt, todos: appData };
+            }
 
             try {
                 let currentKey = localStorage.getItem('CURRENT_TODO_KEY');
@@ -235,19 +291,36 @@
                     localStorage.setItem('CURRENT_TODO_KEY', currentKey);
                 }
                 STORAGE_KEY = currentKey;
-            } catch(e) { }
+            } catch(e) {
+                showStorageStatus('브라우저 저장소에 접근할 수 없습니다. 작업 후 JSON 파일로 저장해주세요.', true);
+            }
+
+            function captureCurrentTab() {
+                appData[currentTab] = Array.from(todoList.querySelectorAll('li'), item => {
+                    const textSpan = item.querySelector('.todo-text');
+                    return { text: textSpan.textContent, isDone: textSpan.classList.contains('done') };
+                });
+            }
+
+            function persistState() {
+                if (storageBlocked) {
+                    showStorageStatus('기존 저장 데이터에 오류가 있어 자동 저장을 멈췄습니다. 현재 목록은 JSON으로 저장할 수 있습니다.', true);
+                    return false;
+                }
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(getState()));
+                    showStorageStatus('');
+                    return true;
+                } catch(e) {
+                    showStorageStatus('자동 저장에 실패했습니다. 창을 닫기 전에 JSON 파일로 저장해주세요.', true);
+                    return false;
+                }
+            }
 
             function saveToStorage() {
-                try {
-                    const todos = [];
-                    const items = todoList.querySelectorAll('li');
-                    items.forEach(item => {
-                        const textSpan = item.querySelector('.todo-text');
-                        todos.push({ text: textSpan.textContent, isDone: textSpan.classList.contains('done') });
-                    });
-                    appData[currentTab] = todos;
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-                } catch(e) {}
+                captureCurrentTab();
+                updatedAt = Math.max(Date.now(), updatedAt + 1);
+                persistState();
             }
 
             function createTodoElement(text, isDone) {
@@ -267,39 +340,32 @@
             }
 
             function renderCurrentTab() {
-                todoList.innerHTML = ''; 
-                const currentTodos = appData[currentTab] || [];
-                if (currentTodos.length > 0) {
-                    currentTodos.forEach(todo => createTodoElement(todo.text, todo.isDone));
-                } else if (currentTab === '1' && Object.keys(appData).every(k => appData[k].length === 0)) {
-                    createTodoElement('기본 항목 (클릭하면 줄이 그어져요)', false);
-                    createTodoElement('우측의 ❌를 누르면 삭제됩니다.', false);
-                    saveToStorage();
-                }
+                todoList.innerHTML = '';
+                appData[currentTab].forEach(todo => createTodoElement(todo.text, todo.isDone));
             }
 
             function loadFromStorage() {
                 try {
                     const rawData = localStorage.getItem(STORAGE_KEY);
-                    if (rawData && rawData !== '[]' && rawData !== '{}') {
-                        const parsedData = JSON.parse(rawData);
-                        if (Array.isArray(parsedData)) {
-                            appData['1'] = parsedData;
-                        } else {
-                            appData = parsedData;
-                        }
+                    if (rawData) {
+                        const state = parseTodoState(JSON.parse(rawData));
+                        appData = state.todos;
+                        updatedAt = state.updatedAt;
                     }
-                } catch(e) {}
+                } catch(e) {
+                    storageBlocked = true;
+                    showStorageStatus('저장된 목록을 읽지 못했습니다. 기존 데이터는 유지됩니다. 올바른 JSON 파일을 가져와 복구할 수 있습니다.', true);
+                }
                 renderCurrentTab();
             }
 
             tabBtns.forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    saveToStorage();
-                    currentTab = e.target.getAttribute('data-tab');
-                    appTitle.innerHTML = `&lt; 할 일 관리-${currentTab} &gt;`;
+                    captureCurrentTab();
+                    currentTab = btn.getAttribute('data-tab');
+                    appTitle.textContent = `< 할 일 관리-${currentTab} >`;
                     tabBtns.forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
+                    btn.classList.add('active');
                     renderCurrentTab();
                 });
             });
@@ -307,6 +373,7 @@
             loadFromStorage();
 
             addBtn.addEventListener('click', () => {
+                if (fileBusy) return;
                 const text = input.value.trim();
                 if (text === '') return; 
                 createTodoElement(text, false);
@@ -315,6 +382,7 @@
             });
 
             todoList.addEventListener('click', (event) => {
+                if (fileBusy) return;
                 if (event.target.classList.contains('delete-btn')) {
                     event.target.parentElement.remove(); 
                     saveToStorage(); 
@@ -326,7 +394,85 @@
             });
 
             input.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') addBtn.click(); 
+                if (event.isComposing || event.keyCode === 229) return;
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addBtn.click();
+                }
+            });
+
+            function setFileBusy(busy) {
+                fileBusy = busy;
+                [importBtn, exportBtn, addBtn, input, ...tabBtns, ...todoList.querySelectorAll('.delete-btn')]
+                    .forEach(el => { el.disabled = busy; });
+            }
+
+            exportBtn.addEventListener('click', async () => {
+                if (fileBusy) return;
+                captureCurrentTab();
+                const json = JSON.stringify(getState(), null, 2);
+                setFileBusy(true);
+                try {
+                    if (typeof window.showSaveFilePicker === 'function') {
+                        const handle = fileHandle || await window.showSaveFilePicker({
+                            suggestedName: 'todo.json',
+                            types: [{ description: '할 일 목록 JSON', accept: { 'application/json': ['.json'] } }]
+                        });
+                        const writable = await handle.createWritable();
+                        try {
+                            await writable.write(json);
+                            await writable.close();
+                        } catch (error) {
+                            await writable.abort().catch(() => {});
+                            throw error;
+                        }
+                        fileHandle = handle;
+                        showStorageStatus('JSON 파일을 PC에 저장했습니다.');
+                    } else {
+                        const url = URL.createObjectURL(new Blob([json], { type: 'application/json;charset=utf-8' }));
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = 'todo.json';
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                        showStorageStatus('todo.json 다운로드를 요청했습니다. 브라우저 다운로드를 확인해주세요.');
+                    }
+                } catch (error) {
+                    fileHandle = null;
+                    if (error.name !== 'AbortError') {
+                        showStorageStatus('파일 저장에 실패했습니다. 저장 위치와 쓰기 권한을 확인해주세요.', true);
+                    }
+                } finally {
+                    setFileBusy(false);
+                }
+            });
+
+            importBtn.addEventListener('click', () => {
+                if (!fileBusy) fileInput.click();
+            });
+
+            fileInput.addEventListener('change', async () => {
+                const file = fileInput.files[0];
+                fileInput.value = '';
+                if (!file || fileBusy) return;
+                setFileBusy(true);
+                try {
+                    const state = parseTodoState(JSON.parse((await file.text()).replace(/^\\uFEFF/, '')));
+                    const hasExistingData = Object.values(appData).some(items => items.length > 0);
+                    if ((hasExistingData || storageBlocked) && !confirm('가져온 파일로 1·2·3번 탭 전체를 교체합니다. 현재 목록을 미리 저장하셨나요?')) return;
+                    appData = state.todos;
+                    updatedAt = state.updatedAt;
+                    storageBlocked = false;
+                    fileHandle = null;
+                    renderCurrentTab();
+                    if (persistState()) showStorageStatus('JSON 파일의 전체 목록을 가져왔습니다.');
+                } catch (error) {
+                    showStorageStatus(`가져오기 실패: ${error instanceof SyntaxError ? 'JSON 문법이 올바르지 않습니다.' : error.message}`, true);
+                } finally {
+                    setFileBusy(false);
+                }
             });
 
             googleBtn.addEventListener('click', () => {
@@ -339,34 +485,48 @@
 
             // AI 질의응답 처리
             async function requestAI() {
+                if (aiBusy) return;
                 const promptText = aiPrompt.value.trim();
                 if (!promptText) return;
+                if (promptText.length > 4000) {
+                    aiAnswerBox.textContent = '질문은 4,000자 이하로 입력해주세요.';
+                    return;
+                }
 
+                aiBusy = true;
                 aiAnswerBox.textContent = '답변 생성 중...';
                 aiSubmitBtn.disabled = true;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 55000);
 
                 try {
                     const res = await fetch('/api/ai', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ prompt: promptText })
+                        body: JSON.stringify({ prompt: promptText }),
+                        signal: controller.signal
                     });
 
-                    const data = await res.json();
-                    if (res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && typeof data.answer === 'string' && data.answer.trim()) {
                         aiAnswerBox.textContent = data.answer;
                     } else {
-                        aiAnswerBox.textContent = `오류: ${data.error || '답변을 불러오지 못했습니다.'}`;
+                        aiAnswerBox.textContent = `오류: ${data.error || `답변을 불러오지 못했습니다. (HTTP ${res.status})`}`;
                     }
                 } catch (err) {
-                    aiAnswerBox.textContent = '통신 중 오류가 발생했습니다.';
+                    aiAnswerBox.textContent = err.name === 'AbortError'
+                        ? '응답 대기 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.'
+                        : '통신 중 오류가 발생했습니다.';
                 } finally {
+                    clearTimeout(timeout);
+                    aiBusy = false;
                     aiSubmitBtn.disabled = false;
                 }
             }
 
             aiSubmitBtn.addEventListener('click', requestAI);
             aiPrompt.addEventListener('keydown', (e) => {
+                if (e.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     requestAI();
