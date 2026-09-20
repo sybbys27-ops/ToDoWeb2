@@ -62,6 +62,8 @@
         .tab-btn[data-tab="1"] { background-color: #a3e635; }
         .tab-btn[data-tab="2"] { background-color: #7dd3fc; }
         .tab-btn[data-tab="3"] { background-color: #fcd34d; }
+        .tab-btn[data-tab="4"] { background-color: #c4b5fd; }
+        .tab-btn[data-tab="5"] { background-color: #f9a8d4; }
         .tab-btn.active { opacity: 1; border: 2px solid #000; transform: scale(1.1); }
 
         .file-action-area { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
@@ -73,7 +75,6 @@
         .input-area { display: flex; gap: 5px; flex-shrink: 0; }
         #todo-input { flex: 1; height: 30px; font-size: 16px; padding-left: 10px; border: 1px solid #ccc; border-radius: 4px; }
         #add-btn { height: 30px; padding: 0 15px; font-size: 15px; cursor: pointer; }
-        #file-input { display: none; }
         #storage-status { margin: 6px 0 0; font-size: 12px; flex-shrink: 0; color: #475569; }
         #storage-status[data-error="true"] { color: #b91c1c; }
 
@@ -90,6 +91,29 @@
         .todo-text { cursor: pointer; }
         .done { text-decoration: line-through; color: gray; opacity: 0.5; }
         .delete-btn { background: none; border: none; color: red; cursor: pointer; font-size: 12px; margin-left: 8px; }
+
+        /* 4·5번 탭 자유 메모 영역 */
+        .memo-area {
+            display: none;
+            flex: 1;
+            margin-top: 4px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #000;
+            min-height: 0;
+        }
+        #memo-textarea {
+            width: 100%;
+            height: 100%;
+            resize: none;
+            box-sizing: border-box;
+            padding: 10px;
+            font-size: 15px;
+            line-height: 1.6;
+            font-family: "Malgun Gothic", sans-serif;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            background: #f8f7ff;
+        }
 
         /* 하단 AI 검색 고정 영역 */
         .ai-section {
@@ -157,12 +181,14 @@
                 <button class="tab-btn active" data-tab="1">1</button>
                 <button class="tab-btn" data-tab="2">2</button>
                 <button class="tab-btn" data-tab="3">3</button>
+                <button class="tab-btn" data-tab="4">4</button>
+                <button class="tab-btn" data-tab="5">5</button>
             </div>
         </div>
 
         <div class="file-action-area">
-            <button class="action-btn" id="import-btn">📂 가져오기</button>
-            <button class="action-btn" id="export-btn">💾 저장하기</button>
+            <button class="action-btn" id="import-btn">☁️ 불러오기</button>
+            <button class="action-btn" id="export-btn">☁️ 구름저장</button>
             <button class="action-btn" id="google-btn">🌐 Google</button>
             <button class="action-btn" id="papago-btn">🦜 papago</button>
         </div>
@@ -170,13 +196,16 @@
         <div class="input-area">
             <input type="text" id="todo-input" placeholder="할 일을 입력하세요.">
             <button id="add-btn">추가</button>
-            <input type="file" id="file-input" accept=".json">
         </div>
         <p id="storage-status" role="status" hidden></p>
 
         <!-- 할 일 목록 스크롤 영역 -->
         <div class="todo-scroll-area">
             <ul id="todo-list"></ul>
+        </div>
+
+        <div class="memo-area" id="memo-area">
+            <textarea id="memo-textarea" placeholder="메모를 입력하세요."></textarea>
         </div>
 
         <!-- 하단 AI 질의응답 고정 영역 -->
@@ -212,7 +241,8 @@
         });
 
 
-        // PC 파일과 향후 Gist todo.json에 동일한 JSON 문자열을 저장합니다.
+        // localStorage와 Gist의 todo.json에 동일한 데이터 구조를 저장합니다.
+        // 1·2·3번은 할 일 목록, 4·5번은 자유 메모입니다.
         // 구버전 배열 / { "1": [], "2": [], "3": [] }도 읽을 수 있습니다.
         function parseTodoState(data) {
             if (!data || typeof data !== 'object') {
@@ -245,7 +275,19 @@
                     return { text: item.text, isDone: item.isDone };
                 });
             }
-            return { schemaVersion: 1, updatedAt, todos };
+            const notes = { '4': '', '5': '' };
+            if (!Array.isArray(data) && data.notes !== undefined) {
+                if (!data.notes || typeof data.notes !== 'object' || Array.isArray(data.notes) ||
+                    Object.keys(data.notes).some(key => !['4', '5'].includes(key))) {
+                    throw new Error('메모 탭 구조가 올바르지 않습니다.');
+                }
+                for (const tab of ['4', '5']) {
+                    const value = data.notes[tab] === undefined ? '' : data.notes[tab];
+                    if (typeof value !== 'string') throw new Error(`${tab}번 메모는 문자열이어야 합니다.`);
+                    notes[tab] = value;
+                }
+            }
+            return { schemaVersion: 1, updatedAt, todos, notes };
         }
 
         function initApp() {
@@ -256,10 +298,13 @@
             const exportBtn = document.getElementById('export-btn');
             const googleBtn = document.getElementById('google-btn');
             const papagoBtn = document.getElementById('papago-btn'); 
-            const fileInput = document.getElementById('file-input');
             const appTitle = document.getElementById('app-title');
             const tabBtns = document.querySelectorAll('.tab-btn');
             const storageStatus = document.getElementById('storage-status');
+            const inputArea = document.querySelector('.input-area');
+            const todoScrollArea = document.querySelector('.todo-scroll-area');
+            const memoArea = document.getElementById('memo-area');
+            const memoTextarea = document.getElementById('memo-textarea');
 
             const aiPrompt = document.getElementById('ai-prompt');
             const aiSubmitBtn = document.getElementById('ai-submit-btn');
@@ -267,12 +312,13 @@
 
             let currentTab = '1';
             let appData = { '1': [], '2': [], '3': [] };
+            let memoData = { '4': '', '5': '' };
             let updatedAt = 0;
             let storageBlocked = false;
-            let fileBusy = false;
-            let fileHandle = null;
+            let syncBusy = false;
             let aiBusy = false;
             let STORAGE_KEY = 'todolistweb_fallback';
+            const SYNC_KEY_STORAGE = 'todoweb2_gist_sync_key';
 
             function showStorageStatus(message, isError = false) {
                 storageStatus.textContent = message;
@@ -281,7 +327,7 @@
             }
 
             function getState() {
-                return { schemaVersion: 1, updatedAt, todos: appData };
+                return { schemaVersion: 1, updatedAt, todos: appData, notes: memoData };
             }
 
             try {
@@ -296,10 +342,14 @@
             }
 
             function captureCurrentTab() {
-                appData[currentTab] = Array.from(todoList.querySelectorAll('li'), item => {
-                    const textSpan = item.querySelector('.todo-text');
-                    return { text: textSpan.textContent, isDone: textSpan.classList.contains('done') };
-                });
+                if (['1', '2', '3'].includes(currentTab)) {
+                    appData[currentTab] = Array.from(todoList.querySelectorAll('li'), item => {
+                        const textSpan = item.querySelector('.todo-text');
+                        return { text: textSpan.textContent, isDone: textSpan.classList.contains('done') };
+                    });
+                } else {
+                    memoData[currentTab] = memoTextarea.value;
+                }
             }
 
             function persistState() {
@@ -340,8 +390,18 @@
             }
 
             function renderCurrentTab() {
-                todoList.innerHTML = '';
-                appData[currentTab].forEach(todo => createTodoElement(todo.text, todo.isDone));
+                const isTodoTab = ['1', '2', '3'].includes(currentTab);
+                inputArea.style.display = isTodoTab ? 'flex' : 'none';
+                todoScrollArea.style.display = isTodoTab ? 'block' : 'none';
+                memoArea.style.display = isTodoTab ? 'none' : 'block';
+
+                if (isTodoTab) {
+                    todoList.innerHTML = '';
+                    appData[currentTab].forEach(todo => createTodoElement(todo.text, todo.isDone));
+                } else {
+                    memoTextarea.value = memoData[currentTab] || '';
+                    memoTextarea.style.backgroundColor = currentTab === '4' ? '#f5f3ff' : '#fff1f7';
+                }
             }
 
             function loadFromStorage() {
@@ -350,6 +410,7 @@
                     if (rawData) {
                         const state = parseTodoState(JSON.parse(rawData));
                         appData = state.todos;
+                        memoData = state.notes;
                         updatedAt = state.updatedAt;
                     }
                 } catch(e) {
@@ -373,7 +434,7 @@
             loadFromStorage();
 
             addBtn.addEventListener('click', () => {
-                if (fileBusy) return;
+                if (syncBusy) return;
                 const text = input.value.trim();
                 if (text === '') return; 
                 createTodoElement(text, false);
@@ -382,7 +443,7 @@
             });
 
             todoList.addEventListener('click', (event) => {
-                if (fileBusy) return;
+                if (syncBusy) return;
                 if (event.target.classList.contains('delete-btn')) {
                     event.target.parentElement.remove(); 
                     saveToStorage(); 
@@ -401,78 +462,153 @@
                 }
             });
 
-            function setFileBusy(busy) {
-                fileBusy = busy;
-                [importBtn, exportBtn, addBtn, input, ...tabBtns, ...todoList.querySelectorAll('.delete-btn')]
+            function setSyncBusy(busy) {
+                syncBusy = busy;
+                [importBtn, exportBtn, addBtn, input, memoTextarea, ...tabBtns, ...todoList.querySelectorAll('.delete-btn')]
                     .forEach(el => { el.disabled = busy; });
             }
 
+            function readSyncKey() {
+                try { return localStorage.getItem(SYNC_KEY_STORAGE) || ''; }
+                catch (e) { return ''; }
+            }
+
+            function clearSyncKey() {
+                try { localStorage.removeItem(SYNC_KEY_STORAGE); } catch (e) {}
+            }
+
+            function getSyncKey() {
+                let key = readSyncKey();
+                if (key) return key;
+                key = prompt('ToDoWeb2 구름 동기화 키를 입력하세요.\n(Vercel의 TODO_GIST_SYNC_KEY와 같은 값)')?.trim() || '';
+                if (!key) return '';
+                try { localStorage.setItem(SYNC_KEY_STORAGE, key); } catch (e) {}
+                return key;
+            }
+
+            async function callGist(action, extra = {}) {
+                const syncKey = getSyncKey();
+                if (!syncKey) return { cancelled: true };
+
+                const res = await fetch('/api/gist', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Todo-Sync-Key': syncKey
+                    },
+                    body: JSON.stringify({ action, ...extra })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.status === 401) clearSyncKey();
+                return { cancelled: false, res, data };
+            }
+
+            function hasLocalData() {
+                return Object.values(appData).some(items => items.length > 0) ||
+                    Object.values(memoData).some(text => text.length > 0);
+            }
+
+            function formatTimestamp(ms) {
+                if (!ms) return '기록 없음';
+                const d = new Date(ms);
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mi = String(d.getMinutes()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+            }
+
             exportBtn.addEventListener('click', async () => {
-                if (fileBusy) return;
+                if (syncBusy) return;
                 captureCurrentTab();
-                const json = JSON.stringify(getState(), null, 2);
-                setFileBusy(true);
+                persistState();
+                setSyncBusy(true);
+                showStorageStatus('Gist에 저장하는 중...');
+
                 try {
-                    if (typeof window.showSaveFilePicker === 'function') {
-                        const handle = fileHandle || await window.showSaveFilePicker({
-                            suggestedName: 'todo.json',
-                            types: [{ description: '할 일 목록 JSON', accept: { 'application/json': ['.json'] } }]
-                        });
-                        const writable = await handle.createWritable();
-                        try {
-                            await writable.write(json);
-                            await writable.close();
-                        } catch (error) {
-                            await writable.abort().catch(() => {});
-                            throw error;
+                    let result = await callGist('save', { state: getState(), force: false });
+                    if (result.cancelled) {
+                        showStorageStatus('');
+                        return;
+                    }
+
+                    if (result.res.status === 409) {
+                        const remoteTime = formatTimestamp(result.data.remoteUpdatedAt);
+                        const ok = confirm(`Gist에 더 최신 데이터(${remoteTime})가 있습니다.\n그래도 현재 이 브라우저의 내용으로 덮어쓸까요?`);
+                        if (!ok) {
+                            showStorageStatus('구름저장을 취소했습니다. 먼저 불러오기로 최신 데이터를 확인할 수 있습니다.', true);
+                            return;
                         }
-                        fileHandle = handle;
-                        showStorageStatus('JSON 파일을 PC에 저장했습니다.');
-                    } else {
-                        const url = URL.createObjectURL(new Blob([json], { type: 'application/json;charset=utf-8' }));
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = 'todo.json';
-                        document.body.appendChild(link);
-                        link.click();
-                        link.remove();
-                        setTimeout(() => URL.revokeObjectURL(url), 1000);
-                        showStorageStatus('todo.json 다운로드를 요청했습니다. 브라우저 다운로드를 확인해주세요.');
+                        result = await callGist('save', { state: getState(), force: true });
+                        if (result.cancelled) return;
                     }
+
+                    if (!result.res.ok) {
+                        showStorageStatus(`구름저장 실패: ${result.data.error || `HTTP ${result.res.status}`}`, true);
+                        return;
+                    }
+
+                    showStorageStatus(result.data.created
+                        ? '새 Gist를 만들고 todo.json을 구름에 저장했습니다.'
+                        : 'todo.json을 Gist에 저장했습니다.');
                 } catch (error) {
-                    fileHandle = null;
-                    if (error.name !== 'AbortError') {
-                        showStorageStatus('파일 저장에 실패했습니다. 저장 위치와 쓰기 권한을 확인해주세요.', true);
-                    }
+                    showStorageStatus('구름저장 중 통신 오류가 발생했습니다.', true);
                 } finally {
-                    setFileBusy(false);
+                    setSyncBusy(false);
                 }
             });
 
-            importBtn.addEventListener('click', () => {
-                if (!fileBusy) fileInput.click();
-            });
+            importBtn.addEventListener('click', async () => {
+                if (syncBusy) return;
+                captureCurrentTab();
+                setSyncBusy(true);
+                showStorageStatus('Gist에서 불러오는 중...');
 
-            fileInput.addEventListener('change', async () => {
-                const file = fileInput.files[0];
-                fileInput.value = '';
-                if (!file || fileBusy) return;
-                setFileBusy(true);
                 try {
-                    const state = parseTodoState(JSON.parse((await file.text()).replace(/^\\uFEFF/, '')));
-                    const hasExistingData = Object.values(appData).some(items => items.length > 0);
-                    if ((hasExistingData || storageBlocked) && !confirm('가져온 파일로 1·2·3번 탭 전체를 교체합니다. 현재 목록을 미리 저장하셨나요?')) return;
+                    const result = await callGist('load');
+                    if (result.cancelled) {
+                        showStorageStatus('');
+                        return;
+                    }
+                    if (!result.res.ok) {
+                        showStorageStatus(`불러오기 실패: ${result.data.error || `HTTP ${result.res.status}`}`, true);
+                        return;
+                    }
+
+                    const state = parseTodoState(result.data.state);
+                    if (hasLocalData() && updatedAt > state.updatedAt) {
+                        const localTime = formatTimestamp(updatedAt);
+                        const cloudTime = formatTimestamp(state.updatedAt);
+                        const ok = confirm(`현재 브라우저 데이터가 더 최신입니다.\n\n로컬: ${localTime}\nGist: ${cloudTime}\n\n그래도 Gist 데이터로 덮어쓸까요?`);
+                        if (!ok) {
+                            showStorageStatus('불러오기를 취소하고 현재 브라우저 데이터를 유지했습니다.');
+                            return;
+                        }
+                    }
+
                     appData = state.todos;
+                    memoData = state.notes;
                     updatedAt = state.updatedAt;
                     storageBlocked = false;
-                    fileHandle = null;
                     renderCurrentTab();
-                    if (persistState()) showStorageStatus('JSON 파일의 전체 목록을 가져왔습니다.');
+                    if (persistState()) {
+                        showStorageStatus('Gist의 todo.json을 불러와 현재 브라우저에 적용했습니다.');
+                    }
                 } catch (error) {
-                    showStorageStatus(`가져오기 실패: ${error instanceof SyntaxError ? 'JSON 문법이 올바르지 않습니다.' : error.message}`, true);
+                    showStorageStatus(`불러오기 실패: ${error.message || '데이터 처리 중 오류가 발생했습니다.'}`, true);
                 } finally {
-                    setFileBusy(false);
+                    setSyncBusy(false);
                 }
+            });
+
+            let memoSaveTimer = null;
+            memoTextarea.addEventListener('input', () => {
+                if (syncBusy || !['4', '5'].includes(currentTab)) return;
+                memoData[currentTab] = memoTextarea.value;
+                updatedAt = Math.max(Date.now(), updatedAt + 1);
+                clearTimeout(memoSaveTimer);
+                memoSaveTimer = setTimeout(() => persistState(), 300);
             });
 
             googleBtn.addEventListener('click', () => {
