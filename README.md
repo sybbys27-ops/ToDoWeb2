@@ -52,3 +52,22 @@ PC JSON 저장과 다음 버전의 GitHub Gist 저장에서 같은 구조를 사
 - GitHub Gist에 `todo.json` 저장
 - Gist에서 할 일 목록 불러오기
 - 현재 PC JSON 저장/불러오기 구조와 Gist 저장 구조 공유
+
+
+## Gist cloud sync branch
+
+Branch: `feature/gist-cloud-sync`
+
+This branch replaces the PC JSON import/export buttons with Gist cloud sync.
+
+### Vercel environment variables
+
+- `GITHUB_GIST_TOKEN`: GitHub token used only on the Vercel server.
+- `TODO_GIST_SYNC_KEY`: app-only secret used to protect the public `/api/gist` endpoint.
+- `TODO_GIST_ID`: optional fixed Gist ID. If omitted, the server looks for a private Gist whose description is `ToDoWeb2 Cloud Sync` and whose file is `todo.json`; if none exists, the first cloud save creates one.
+
+The browser never receives `GITHUB_GIST_TOKEN`. On first cloud save/load, the browser asks for `TODO_GIST_SYNC_KEY` and stores that app-only key in localStorage.
+
+### Cloud data
+
+The Gist file name is `todo.json`. It contains tabs 1–3 as todo lists and tabs 4–5 as notes. `updatedAt` is used to detect newer cloud/local data and prevent accidental overwrites.
