@@ -62,6 +62,8 @@
         .tab-btn[data-tab="1"] { background-color: #a3e635; }
         .tab-btn[data-tab="2"] { background-color: #7dd3fc; }
         .tab-btn[data-tab="3"] { background-color: #fcd34d; }
+        .tab-btn[data-tab="4"] { background-color: #c4b5fd; }
+        .tab-btn[data-tab="5"] { background-color: #f9a8d4; }
         .tab-btn.active { opacity: 1; border: 2px solid #000; transform: scale(1.1); }
 
         .file-action-area { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
@@ -90,6 +92,29 @@
         .todo-text { cursor: pointer; }
         .done { text-decoration: line-through; color: gray; opacity: 0.5; }
         .delete-btn { background: none; border: none; color: red; cursor: pointer; font-size: 12px; margin-left: 8px; }
+
+        /* 4·5번 탭 자유 메모 영역 */
+        .memo-area {
+            display: none;
+            flex: 1;
+            margin-top: 4px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #000;
+            min-height: 0;
+        }
+        #memo-textarea {
+            width: 100%;
+            height: 100%;
+            resize: none;
+            box-sizing: border-box;
+            padding: 10px;
+            font-size: 15px;
+            line-height: 1.6;
+            font-family: "Malgun Gothic", sans-serif;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            background: #f8f7ff;
+        }
 
         /* 하단 AI 검색 고정 영역 */
         .ai-section {
@@ -157,6 +182,8 @@
                 <button class="tab-btn active" data-tab="1">1</button>
                 <button class="tab-btn" data-tab="2">2</button>
                 <button class="tab-btn" data-tab="3">3</button>
+                <button class="tab-btn" data-tab="4">4</button>
+                <button class="tab-btn" data-tab="5">5</button>
             </div>
         </div>
 
@@ -177,6 +204,10 @@
         <!-- 할 일 목록 스크롤 영역 -->
         <div class="todo-scroll-area">
             <ul id="todo-list"></ul>
+        </div>
+
+        <div class="memo-area" id="memo-area">
+            <textarea id="memo-textarea" placeholder="메모를 입력하세요."></textarea>
         </div>
 
         <!-- 하단 AI 질의응답 고정 영역 -->
@@ -213,6 +244,7 @@
 
 
         // PC 파일과 향후 Gist todo.json에 동일한 JSON 문자열을 저장합니다.
+        // 1·2·3번은 할 일 목록, 4·5번은 자유 메모입니다.
         // 구버전 배열 / { "1": [], "2": [], "3": [] }도 읽을 수 있습니다.
         function parseTodoState(data) {
             if (!data || typeof data !== 'object') {
@@ -245,7 +277,19 @@
                     return { text: item.text, isDone: item.isDone };
                 });
             }
-            return { schemaVersion: 1, updatedAt, todos };
+            const notes = { '4': '', '5': '' };
+            if (!Array.isArray(data) && data.notes !== undefined) {
+                if (!data.notes || typeof data.notes !== 'object' || Array.isArray(data.notes) ||
+                    Object.keys(data.notes).some(key => !['4', '5'].includes(key))) {
+                    throw new Error('메모 탭 구조가 올바르지 않습니다.');
+                }
+                for (const tab of ['4', '5']) {
+                    const value = data.notes[tab] === undefined ? '' : data.notes[tab];
+                    if (typeof value !== 'string') throw new Error(`${tab}번 메모는 문자열이어야 합니다.`);
+                    notes[tab] = value;
+                }
+            }
+            return { schemaVersion: 1, updatedAt, todos, notes };
         }
 
         function initApp() {
@@ -260,6 +304,10 @@
             const appTitle = document.getElementById('app-title');
             const tabBtns = document.querySelectorAll('.tab-btn');
             const storageStatus = document.getElementById('storage-status');
+            const inputArea = document.querySelector('.input-area');
+            const todoScrollArea = document.querySelector('.todo-scroll-area');
+            const memoArea = document.getElementById('memo-area');
+            const memoTextarea = document.getElementById('memo-textarea');
 
             const aiPrompt = document.getElementById('ai-prompt');
             const aiSubmitBtn = document.getElementById('ai-submit-btn');
@@ -267,6 +315,7 @@
 
             let currentTab = '1';
             let appData = { '1': [], '2': [], '3': [] };
+            let memoData = { '4': '', '5': '' };
             let updatedAt = 0;
             let storageBlocked = false;
             let fileBusy = false;
@@ -281,7 +330,7 @@
             }
 
             function getState() {
-                return { schemaVersion: 1, updatedAt, todos: appData };
+                return { schemaVersion: 1, updatedAt, todos: appData, notes: memoData };
             }
 
             try {
@@ -296,10 +345,14 @@
             }
 
             function captureCurrentTab() {
-                appData[currentTab] = Array.from(todoList.querySelectorAll('li'), item => {
-                    const textSpan = item.querySelector('.todo-text');
-                    return { text: textSpan.textContent, isDone: textSpan.classList.contains('done') };
-                });
+                if (['1', '2', '3'].includes(currentTab)) {
+                    appData[currentTab] = Array.from(todoList.querySelectorAll('li'), item => {
+                        const textSpan = item.querySelector('.todo-text');
+                        return { text: textSpan.textContent, isDone: textSpan.classList.contains('done') };
+                    });
+                } else {
+                    memoData[currentTab] = memoTextarea.value;
+                }
             }
 
             function persistState() {
@@ -340,8 +393,18 @@
             }
 
             function renderCurrentTab() {
-                todoList.innerHTML = '';
-                appData[currentTab].forEach(todo => createTodoElement(todo.text, todo.isDone));
+                const isTodoTab = ['1', '2', '3'].includes(currentTab);
+                inputArea.style.display = isTodoTab ? 'flex' : 'none';
+                todoScrollArea.style.display = isTodoTab ? 'block' : 'none';
+                memoArea.style.display = isTodoTab ? 'none' : 'block';
+
+                if (isTodoTab) {
+                    todoList.innerHTML = '';
+                    appData[currentTab].forEach(todo => createTodoElement(todo.text, todo.isDone));
+                } else {
+                    memoTextarea.value = memoData[currentTab] || '';
+                    memoTextarea.style.backgroundColor = currentTab === '4' ? '#f5f3ff' : '#fff1f7';
+                }
             }
 
             function loadFromStorage() {
@@ -350,6 +413,7 @@
                     if (rawData) {
                         const state = parseTodoState(JSON.parse(rawData));
                         appData = state.todos;
+                        memoData = state.notes;
                         updatedAt = state.updatedAt;
                     }
                 } catch(e) {
@@ -403,7 +467,7 @@
 
             function setFileBusy(busy) {
                 fileBusy = busy;
-                [importBtn, exportBtn, addBtn, input, ...tabBtns, ...todoList.querySelectorAll('.delete-btn')]
+                [importBtn, exportBtn, addBtn, input, memoTextarea, ...tabBtns, ...todoList.querySelectorAll('.delete-btn')]
                     .forEach(el => { el.disabled = busy; });
             }
 
@@ -460,9 +524,11 @@
                 setFileBusy(true);
                 try {
                     const state = parseTodoState(JSON.parse((await file.text()).replace(/^\\uFEFF/, '')));
-                    const hasExistingData = Object.values(appData).some(items => items.length > 0);
-                    if ((hasExistingData || storageBlocked) && !confirm('가져온 파일로 1·2·3번 탭 전체를 교체합니다. 현재 목록을 미리 저장하셨나요?')) return;
+                    const hasExistingData = Object.values(appData).some(items => items.length > 0) ||
+                        Object.values(memoData).some(text => text.length > 0);
+                    if ((hasExistingData || storageBlocked) && !confirm('가져온 파일로 1·2·3번 할 일과 4·5번 메모를 교체합니다. 현재 데이터를 미리 저장하셨나요?')) return;
                     appData = state.todos;
+                    memoData = state.notes;
                     updatedAt = state.updatedAt;
                     storageBlocked = false;
                     fileHandle = null;
@@ -473,6 +539,13 @@
                 } finally {
                     setFileBusy(false);
                 }
+            });
+
+            let memoSaveTimer = null;
+            memoTextarea.addEventListener('input', () => {
+                if (fileBusy || !['4', '5'].includes(currentTab)) return;
+                clearTimeout(memoSaveTimer);
+                memoSaveTimer = setTimeout(() => saveToStorage(), 300);
             });
 
             googleBtn.addEventListener('click', () => {
