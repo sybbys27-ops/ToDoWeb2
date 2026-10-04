@@ -44,6 +44,34 @@ PC JSON 저장과 다음 버전의 GitHub Gist 저장에서 같은 구조를 사
 }
 ```
 
+## Vercel Production 기준 브랜치 변경
+
+Vercel Project에서 `main`이 아닌 특정 branch를 Production 기준으로 사용할 수 있습니다.
+
+설정 경로:
+
+```text
+Vercel Project
+→ Settings
+→ Environments
+→ Production
+→ Branch Tracking
+```
+
+`Branch is` 항목의 `main`을 Production으로 사용할 branch 이름으로 변경한 뒤 `Save`를 누릅니다.
+
+예:
+
+```text
+Branch is feature/gist-storage
+```
+
+이 설정이 적용되면 `feature/gist-storage`에 새 commit이 push될 때 해당 Vercel Project에서 자동으로 Production Deployment가 생성됩니다.
+
+반대로 Production 기준이 아닌 다른 branch의 새 commit은 일반적으로 Preview Deployment로 생성됩니다.
+
+참고: Deployments 화면의 `Redeploy → Production / Preview` 선택은 기존 소스를 어느 환경으로 한 번 다시 배포할지 정하는 일회성 배포이며, 앞으로의 자동 Production 기준 branch를 변경하는 설정은 아닙니다.
+
 ## 다음 작업
 
 다음 개발은 `main`에서 직접 작업하지 않고 별도 브랜치에서 진행합니다.
